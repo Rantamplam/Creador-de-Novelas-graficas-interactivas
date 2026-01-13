@@ -1,0 +1,5 @@
+{
+  "name": "Generador de Novelas Gráficas Interactivas",
+  "description": "Una aplicación que transforma el texto de una novela en una novela gráfica interactiva y visualmente atractiva, utilizando la API de Gemini para generar imágenes y videos coherentes con la narrativa.",
+  "requestFramePermissions": []
+}
