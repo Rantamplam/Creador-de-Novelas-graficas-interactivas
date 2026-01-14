@@ -8,10 +8,10 @@ import { generateVideoForScene, checkVideoStatus } from '../services/gemini';
 
 const PREDEFINED_MUSIC = [
     { name: "Sin música ambiental", url: "" }, 
-    { name: "Misterio y Tensión", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3" }, 
-    { name: "Acción Heroica", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" }, 
-    { name: "Atmósfera de Ensueño", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
-    { name: "Suspenso Noir", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" }
+    { name: "Atmósfera Cinemática (Misterio)", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3" }, 
+    { name: "Épico y Heroico", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" }, 
+    { name: "Suspenso Noir", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
+    { name: "Relajante / Emocional", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3" }
 ];
 
 interface SceneCardProps {
@@ -27,6 +27,7 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
     const [isPlayingMusic, setIsPlayingMusic] = useState(false);
     const [customMusicName, setCustomMusicName] = useState<string | null>(null);
+    const [audioError, setAudioError] = useState<string | null>(null);
     
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
     const musicPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -34,12 +35,18 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
     const videoUploadRef = useRef<HTMLInputElement>(null);
     const musicUploadRef = useRef<HTMLInputElement>(null);
 
-    // Sincronizar volumen del reproductor con el estado
+    // Sincronizar volúmenes del reproductor con el estado
     useEffect(() => {
         if (musicPlayerRef.current) {
             musicPlayerRef.current.volume = (scene.musicVolume ?? 40) / 100;
         }
     }, [scene.musicVolume]);
+
+    useEffect(() => {
+        if (audioPlayerRef.current) {
+            audioPlayerRef.current.volume = (scene.speechVolume ?? 100) / 100;
+        }
+    }, [scene.speechVolume]);
 
     const toggleAudioPreview = () => {
         const player = audioPlayerRef.current;
@@ -47,8 +54,13 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
         if (isPlayingAudio) {
             player.pause();
         } else {
-            if (isPlayingMusic && musicPlayerRef.current) musicPlayerRef.current.pause();
-            player.play().catch(e => console.error("Error voz:", e));
+            if (isPlayingMusic && musicPlayerRef.current) {
+                musicPlayerRef.current.volume = ((scene.musicVolume ?? 40) / 100) * 0.3;
+            }
+            player.play().catch(e => {
+                console.error("Error voz:", e);
+                dispatch({ type: 'ADD_TOAST', payload: { message: 'Error al reproducir voz. Prueba regenerando.', type: 'error' } });
+            });
         }
     };
 
@@ -59,30 +71,23 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
         if (isPlayingMusic) {
             player.pause();
         } else {
-            if (isPlayingAudio && audioPlayerRef.current) audioPlayerRef.current.pause();
-            
-            // Asegurar volumen antes de reproducir
             player.volume = (scene.musicVolume ?? 40) / 100;
-
             const playPromise = player.play();
             if (playPromise !== undefined) {
                 playPromise.catch(error => {
                     console.error("Error al reproducir música:", error);
-                    let msg = 'Error de conexión con el servidor de audio. Prueba subiendo tu propio archivo.';
-                    if (error.name === 'NotAllowedError') msg = 'Haz clic en la página para habilitar el sonido';
-                    dispatch({ type: 'ADD_TOAST', payload: { message: msg, type: 'error' } });
+                    setAudioError("Error de carga de audio externo.");
+                    dispatch({ type: 'ADD_TOAST', payload: { message: 'Servidor de música no disponible. Prueba subiendo tu archivo.', type: 'error' } });
                     setIsPlayingMusic(false);
                 });
             }
         }
     };
 
-    const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const volume = parseInt(e.target.value);
-        dispatch({ type: 'UPDATE_SCENE_CONFIG', payload: { sceneId: scene.id, config: { musicVolume: volume } } });
+    const handleConfigUpdate = (config: Partial<Pick<Scene, 'musicVolume' | 'speechVolume' | 'backgroundMusicUrl'>>) => {
+        dispatch({ type: 'UPDATE_SCENE_CONFIG', payload: { sceneId: scene.id, config } });
     };
 
-    // Fix: Implemented handleImageUpload to process local image files
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -90,19 +95,17 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
             reader.onload = (event) => {
                 const imageUrl = event.target?.result as string;
                 dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { imageUrl, imagePrompt: 'Cargada por el usuario' } } });
-                dispatch({ type: 'ADD_TOAST', payload: { message: 'Imagen subida correctamente', type: 'success' } });
+                dispatch({ type: 'ADD_TOAST', payload: { message: 'Imagen subida', type: 'success' } });
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // Fix: Implemented handleVideoUpload to process local video files
     const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             const videoUrl = URL.createObjectURL(file);
             dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { videoUrl } } });
-            dispatch({ type: 'ADD_TOAST', payload: { message: 'Video subido correctamente', type: 'success' } });
         }
     };
 
@@ -111,8 +114,9 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
         if (file) {
             const musicUrl = URL.createObjectURL(file);
             setCustomMusicName(file.name);
-            dispatch({ type: 'UPDATE_SCENE_CONFIG', payload: { sceneId: scene.id, config: { backgroundMusicUrl: musicUrl } } });
-            dispatch({ type: 'ADD_TOAST', payload: { message: `"${file.name}" cargada correctamente`, type: 'success' } });
+            setAudioError(null);
+            handleConfigUpdate({ backgroundMusicUrl: musicUrl });
+            dispatch({ type: 'ADD_TOAST', payload: { message: `"${file.name}" cargada`, type: 'success' } });
         }
     };
 
@@ -121,7 +125,7 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
             await (window as any).aistudio.openSelectKey();
             dispatch({ type: 'SET_API_KEY_STATUS', payload: true });
         }
-        dispatch({type: 'UPDATE_SCENE', payload: {sceneId: scene.id, updates: { isGeneratingVideo: true, videoError: undefined }}});
+        dispatch({type: 'UPDATE_SCENE', payload: {sceneId: scene.id, updates: { isGeneratingVideo: true }}});
         try {
             const operation = await generateVideoForScene(scene.parts, aspectRatio);
             const check = async () => {
@@ -129,7 +133,6 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                 if (status.done) {
                     const url = `${status.response?.generatedVideos?.[0]?.video?.uri}&key=${process.env.API_KEY}`;
                     dispatch({type: 'UPDATE_SCENE', payload: {sceneId: scene.id, updates: { videoUrl: url, isGeneratingVideo: false }}});
-                    dispatch({ type: 'ADD_TOAST', payload: { message: `Video listo`, type: 'success' } });
                 } else {
                     setTimeout(check, 8000);
                 }
@@ -165,30 +168,11 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                         scene.videoUrl ? (
                             <div className="relative w-full h-full">
                                 <video src={scene.videoUrl} controls className="w-full h-full object-cover" />
-                                <div className="absolute top-6 left-6 flex gap-2">
-                                    <div className="px-4 py-1.5 bg-purple-600/90 backdrop-blur-xl rounded-full text-[10px] font-black text-white uppercase tracking-widest shadow-2xl animate-pulse">Cinemática Lista</div>
-                                    <button onClick={() => {
-                                        const link = document.createElement('a');
-                                        link.href = scene.videoUrl!;
-                                        link.download = `nova-video-${sceneNumber}.mp4`;
-                                        link.click();
-                                    }} className="p-2 bg-black/60 hover:bg-sky-500 rounded-full text-white transition-all shadow-xl">
-                                        <DownloadIcon className="w-4 h-4" />
-                                    </button>
-                                </div>
                             </div>
                         ) : (
                             <div className="relative w-full h-full group/img">
                                 <img src={scene.imageUrl} alt="" className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-[2s]" />
                                 <div className="absolute top-6 left-6 flex gap-2 opacity-0 group-hover/img:opacity-100 transition-opacity duration-500">
-                                    <button onClick={() => {
-                                        const link = document.createElement('a');
-                                        link.href = scene.imageUrl!;
-                                        link.download = `nova-img-${sceneNumber}.png`;
-                                        link.click();
-                                    }} className="p-2 bg-black/60 hover:bg-sky-500 rounded-full text-white transition-all shadow-xl">
-                                        <DownloadIcon className="w-4 h-4" />
-                                    </button>
                                     <button onClick={() => imageUploadRef.current?.click()} className="p-2 bg-black/60 hover:bg-sky-500 rounded-full text-white transition-all shadow-xl">
                                         <UploadIcon className="w-4 h-4" />
                                     </button>
@@ -199,14 +183,9 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                             </div>
                         )
                     ) : (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 text-gray-700 bg-[radial-gradient(circle_at_center,_#111_0%,_#000_100%)]">
-                             <div className="w-16 h-16 rounded-3xl border-2 border-dashed border-gray-800 flex items-center justify-center">
-                                <UploadIcon className="w-6 h-6 opacity-20" />
-                             </div>
-                             <div className="flex flex-col gap-2">
-                                <button onClick={() => handleGenerateImageForScene(scene.id)} className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-2xl text-xs font-bold text-white transition-all">Generar con Estilo Global</button>
-                                <button onClick={() => imageUploadRef.current?.click()} className="px-6 py-2.5 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold text-gray-400 border border-white/5 transition-all">Subir Arte Propio</button>
-                             </div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-gray-950">
+                             <button onClick={() => handleGenerateImageForScene(scene.id)} className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-2xl text-xs font-bold text-white transition-all">Generar Imagen</button>
+                             <button onClick={() => imageUploadRef.current?.click()} className="px-6 py-2.5 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold text-gray-400 transition-all">Subir Arte</button>
                         </div>
                     )}
                     <input ref={imageUploadRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
@@ -227,15 +206,15 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                         </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                         <div className="grid grid-cols-2 gap-4">
                             {!scene.audioUrl ? (
                                 <button 
                                     onClick={() => handleNarrateScene(scene.id)} 
                                     disabled={scene.isGeneratingAudio}
-                                    className="flex flex-col items-center justify-center gap-2 py-5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest bg-sky-600 hover:bg-sky-500 text-white shadow-xl shadow-sky-600/10 transition-all disabled:opacity-50 group/btn"
+                                    className="flex flex-col items-center justify-center gap-2 py-5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest bg-sky-600 hover:bg-sky-500 text-white shadow-xl shadow-sky-600/10 transition-all disabled:opacity-50"
                                 >
-                                    {scene.isGeneratingAudio ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : <SpeakerWaveIcon className="w-6 h-6 group-hover/btn:scale-110 transition-transform" />}
+                                    {scene.isGeneratingAudio ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : <SpeakerWaveIcon className="w-6 h-6" />}
                                     Generar Voz
                                 </button>
                             ) : (
@@ -244,57 +223,48 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                                         onClick={toggleAudioPreview}
                                         className={`flex flex-col items-center justify-center gap-2 py-5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${isPlayingAudio ? 'bg-amber-500 text-white shadow-amber-500/20 shadow-xl' : 'bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20'}`}
                                     >
-                                        {isPlayingAudio ? <PauseIcon className="w-6 h-6 animate-pulse" /> : <PlayIcon className="w-6 h-6" />}
+                                        {isPlayingAudio ? <PauseIcon className="w-6 h-6" /> : <PlayIcon className="w-6 h-6" />}
                                         {isPlayingAudio ? 'Reproduciendo' : 'Oír Narración'}
                                         <audio 
                                             ref={audioPlayerRef} 
                                             src={scene.audioUrl} 
                                             crossOrigin="anonymous"
-                                            onEnded={() => setIsPlayingAudio(false)}
+                                            onEnded={() => {
+                                                setIsPlayingAudio(false);
+                                                if (musicPlayerRef.current) musicPlayerRef.current.volume = (scene.musicVolume ?? 40) / 100;
+                                            }}
                                             onPause={() => setIsPlayingAudio(false)}
                                             onPlay={() => setIsPlayingAudio(true)}
                                             className="hidden" 
                                         />
                                     </button>
-                                    <button onClick={() => dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { audioUrl: undefined } } })} className="text-[9px] text-gray-600 hover:text-sky-400 uppercase tracking-[0.2em] font-black transition-colors text-center">Remplazar Voz</button>
+                                    <button onClick={() => dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { audioUrl: undefined } } })} className="text-[9px] text-gray-600 hover:text-sky-400 uppercase tracking-widest font-black text-center">Cambiar Voz</button>
                                 </div>
                             )}
 
-                            <div className="flex flex-col gap-2">
-                                <button 
-                                    onClick={handleAnimate}
-                                    disabled={scene.isGeneratingVideo || !scene.imageUrl || !!scene.videoUrl}
-                                    className={`flex flex-col items-center justify-center gap-2 py-5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${scene.videoUrl ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-purple-600 hover:bg-purple-500 text-white shadow-xl shadow-purple-600/10 disabled:opacity-20'}`}
-                                >
-                                    {scene.isGeneratingVideo ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : <FilmIcon className="w-6 h-6" />}
-                                    {scene.videoUrl ? 'Cinemática OK' : 'Animar con IA'}
-                                </button>
-                                {!scene.videoUrl && scene.imageUrl && (
-                                    <button onClick={() => videoUploadRef.current?.click()} className="text-[9px] text-gray-600 hover:text-purple-400 uppercase tracking-[0.2em] font-black transition-colors text-center">Subir Video</button>
-                                )}
-                            </div>
+                            <button 
+                                onClick={handleAnimate}
+                                disabled={scene.isGeneratingVideo || !scene.imageUrl || !!scene.videoUrl}
+                                className={`flex flex-col items-center justify-center gap-2 py-5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${scene.videoUrl ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-20'}`}
+                            >
+                                {scene.isGeneratingVideo ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div> : <FilmIcon className="w-6 h-6" />}
+                                {scene.videoUrl ? 'Cinemática OK' : 'Animar con IA'}
+                            </button>
                         </div>
 
-                        <div className="bg-white/[0.03] p-6 rounded-2xl border border-white/5 space-y-4">
+                        <div className="bg-white/[0.03] p-6 rounded-2xl border border-white/5 space-y-6">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-gray-400">
                                     <MusicNoteIcon className="w-4 h-4" />
-                                    <span className="text-[10px] font-black uppercase tracking-widest">Música Ambiental</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest">Mezclador de Audio</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {scene.backgroundMusicUrl && (
-                                        <button 
-                                            onClick={toggleMusicPreview}
-                                            className={`p-2 rounded-xl transition-all ${isPlayingMusic ? 'bg-sky-500 text-white shadow-lg' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
-                                        >
+                                        <button onClick={toggleMusicPreview} className={`p-2 rounded-xl transition-all ${isPlayingMusic ? 'bg-sky-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
                                             {isPlayingMusic ? <PauseIcon className="w-4 h-4" /> : <PlayIcon className="w-4 h-4" />}
                                         </button>
                                     )}
-                                    <button 
-                                        onClick={() => musicUploadRef.current?.click()} 
-                                        className="p-2 bg-white/5 text-gray-400 hover:bg-sky-500/20 hover:text-sky-400 rounded-xl transition-all"
-                                        title="Subir MP3/WAV propio"
-                                    >
+                                    <button onClick={() => musicUploadRef.current?.click()} className="p-2 bg-white/5 text-gray-400 hover:text-sky-400 rounded-xl transition-all">
                                         <UploadIcon className="w-4 h-4" />
                                     </button>
                                 </div>
@@ -305,29 +275,28 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                                 onChange={e => {
                                     if (e.target.value === "custom") return;
                                     setCustomMusicName(null);
-                                    dispatch({ type: 'UPDATE_SCENE_CONFIG', payload: { sceneId: scene.id, config: { backgroundMusicUrl: e.target.value } } });
+                                    handleConfigUpdate({ backgroundMusicUrl: e.target.value });
                                 }}
-                                className="bg-gray-900 border border-white/5 text-xs text-gray-400 focus:text-white outline-none w-full p-2.5 rounded-xl cursor-pointer font-medium"
+                                className="bg-gray-900 border border-white/5 text-xs text-gray-400 outline-none w-full p-2.5 rounded-xl"
                             >
                                 {PREDEFINED_MUSIC.map(m => <option key={m.name} value={m.url}>{m.name}</option>)}
-                                {customMusicName && <option value="custom">Personalizada: {customMusicName}</option>}
+                                {customMusicName && <option value="custom">Pers.: {customMusicName}</option>}
                             </select>
 
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                                    <span>Volumen Música</span>
-                                    <span>{scene.musicVolume ?? 40}%</span>
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-[9px] text-gray-500 font-black uppercase tracking-widest">
+                                        <span>Volumen Diálogo</span>
+                                        <span className="text-sky-400">{scene.speechVolume ?? 100}%</span>
+                                    </div>
+                                    <input type="range" min="0" max="100" value={scene.speechVolume ?? 100} onChange={e => handleConfigUpdate({ speechVolume: parseInt(e.target.value) })} className="w-full h-1.5 bg-white/5 rounded-lg appearance-none accent-sky-500" />
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <VolumeUpIcon className="w-4 h-4 text-gray-600" />
-                                    <input 
-                                        type="range" 
-                                        min="0" 
-                                        max="100" 
-                                        value={scene.musicVolume ?? 40} 
-                                        onChange={handleVolumeChange}
-                                        className="flex-grow h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                                    />
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-[9px] text-gray-500 font-black uppercase tracking-widest">
+                                        <span>Volumen Ambiente</span>
+                                        <span className="text-purple-400">{scene.musicVolume ?? 40}%</span>
+                                    </div>
+                                    <input type="range" min="0" max="100" value={scene.musicVolume ?? 40} onChange={e => handleConfigUpdate({ musicVolume: parseInt(e.target.value) })} className="w-full h-1.5 bg-white/5 rounded-lg appearance-none accent-purple-500" />
                                 </div>
                             </div>
 
@@ -335,13 +304,12 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                             <audio 
                                 ref={musicPlayerRef} 
                                 src={scene.backgroundMusicUrl} 
-                                crossOrigin="anonymous"
-                                preload="auto"
-                                onEnded={() => setIsPlayingMusic(false)}
-                                onPause={() => setIsPlayingMusic(false)}
-                                onPlay={() => setIsPlayingMusic(true)}
-                                loop
-                                className="hidden"
+                                crossOrigin="anonymous" 
+                                preload="auto" 
+                                onPlay={() => setIsPlayingMusic(true)} 
+                                onPause={() => setIsPlayingMusic(false)} 
+                                loop 
+                                className="hidden" 
                             />
                         </div>
                     </div>

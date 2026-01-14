@@ -120,7 +120,7 @@ export const identifyCharacters = async (novelText: string): Promise<Character[]
     const ai = getAiClient();
     const model = 'gemini-3-flash-preview';
 
-    const prompt = `Identifica a los personajes principales (máx 5) del texto. Crea una descripción visual MUY detallada de cada uno para IA (cabello, ojos, ropa, edad).
+    const prompt = `Identifica a los personajes principales (máx 5) del texto. Crea una descripción visual MUY detallada de cada uno para IA (rasgos faciales inalterables, color de ojos, textura de cabello, complexión exacta).
     Devuelve un array JSON con "name" y "description".
     Texto: ${novelText}`;
 
@@ -154,39 +154,52 @@ export const generateImageForScene = async (parts: NarrationPart[], style: strin
     const textModel = 'gemini-3-flash-preview';
     const imageModel = 'gemini-2.5-flash-image';
 
-    const charRef = characters.map(c => `${c.name}: ${c.description}`).join('\n');
+    const charRef = characters.map(c => `CHARACTER BIBLE FOR ${c.name}: ${c.description}`).join('\n');
     const sceneContent = parts.map(p => p.text).join(' ');
 
+    // Instrucción de sistema con prohibiciones estrictas para evitar el "Pixar Drift"
+    const systemInstruction = `
+    You are a professional Cinematic Concept Artist. Your job is to write highly technical image generation prompts.
+    
+    STRICT VISUAL RULES:
+    1. CURRENT GLOBAL STYLE: "${style}". 
+    2. MANDATORY CONSISTENCY: Characters MUST look identical in every prompt. Use the Character Bible provided.
+    3. NO STYLE DRIFT: If the style is "Cinematográfica" or "Realista", you are FORBIDDEN from using words like "cartoon", "disney", "pixar", "3d render", "whimsical", or "cute".
+    4. TECHNICAL ANCHORING: Every prompt must start with technical camera and lighting terms related to "${style}".
+    `;
+
     const promptGenPrompt = `
-    TASK: Act as an Art Director for a consistent visual series. 
-    You must create a highly detailed image generation prompt for a specific scene while maintaining a strictly UNIFORM STYLE across all frames.
+    GENERATE A TECHNICAL PROMPT FOR THIS SCENE:
+    "${sceneContent}"
 
-    GLOBAL PROJECT STYLE: "${style.toUpperCase()}"
-    ARTISTIC DIRECTION & PALETTE: "${artDirection}"
+    USER STYLE CHOICE: ${style}
+    ADDITIONAL ART DIRECTION: ${artDirection}
 
-    MANDATORY STYLE ANCHORS:
-    1. Every prompt MUST start with the phrase: "A high-quality masterpiece in ${style} style, part of a consistent narrative series, with ${artDirection} lighting and colors."
-    2. Characters MUST be identical to these descriptions:
+    CHARACTER CONSTANTS (STRICT ADHERENCE):
     ${charRef}
-    3. Ensure the lighting, texture, and overall artistic vibe matches the GLOBAL PROJECT STYLE exactly.
 
-    SCENE DESCRIPTION:
-    ${sceneContent}
-
-    TECHNICAL CONSTRAINTS:
-    - Language: English.
-    - Details: Professional cinematic composition, 8k, detailed textures.
-    - Atmosphere: Consistent with "${artDirection}".
-    ${includeTextInImage ? '- Note: Reserve space for Spanish subtitles if dialogue is present.' : '- NO TEXT, NO LOGOS, NO WATERMARKS.'}
-    - ONLY return the generated prompt string.
+    PROMPT TEMPLATE:
+    [TECHNICAL STYLE ANCHOR: ${style} lighting, ${style} camera settings] + [CHARACTER ACTION AND DESCRIPTION] + [ENVIRONMENT DETAILS] + [ART DIRECTION: ${artDirection}].
+    
+    Return ONLY the English prompt text.
     `;
     
-    const promptResponse = await ai.models.generateContent({ model: textModel, contents: promptGenPrompt });
+    const promptResponse = await ai.models.generateContent({ 
+        model: textModel, 
+        contents: promptGenPrompt,
+        config: { systemInstruction }
+    });
+    
     const imagePrompt = promptResponse.text;
 
     const imageResponse = await ai.models.generateContent({
         model: imageModel,
         contents: { parts: [{ text: imagePrompt }] },
+        config: {
+            imageConfig: {
+                aspectRatio: "16:9" // Placeholder, will be overridden by state in context
+            }
+        }
     });
 
     const candidate = imageResponse.candidates?.[0];
@@ -208,7 +221,7 @@ export const generateVideoForScene = async (parts: NarrationPart[], aspectRatio:
 
     return await ai.models.generateVideos({
         model,
-        prompt: `Cinematic high-quality animation: ${action}. Maintain strictly consistent character design and lighting. Fluid professional motion, filmic look.`,
+        prompt: `Cinematic footage, high definition: ${action}. Strictly follow character visual consistency. Realistic textures, professional cinematography, NO animation style.`,
         config: { numberOfVideos: 1, resolution: '720p', aspectRatio }
     });
 };
@@ -235,7 +248,7 @@ export const generateAudioForScene = async (parts: NarrationPart[], allCharacter
                 model,
                 contents: [{ parts: [{ text: part.text }] }],
                 config: {
-                    responseModalities: [Modality.AUDIO],
+                    responseModalalities: [Modality.AUDIO],
                     speechConfig: {
                         voiceConfig: { prebuiltVoiceConfig: { voiceName } },
                     },

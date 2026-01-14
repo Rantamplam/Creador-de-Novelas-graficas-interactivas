@@ -50,8 +50,8 @@ export default function MovieModal() {
                         mus.src = currentScene.backgroundMusicUrl;
                         mus.load();
                     }
-                    // Aplicar volumen de la escena o predeterminado 25% si no existe
-                    mus.volume = (currentScene.musicVolume ?? 40) / 100 * 0.7; // Atenuar un poco más para favorecer diálogos
+                    // Aplicar el volumen específico de la mezcla de música para esta escena
+                    mus.volume = (currentScene.musicVolume ?? 40) / 100;
                     mus.play().catch(e => console.error("Error música película:", e));
                 } else {
                     mus.pause();
@@ -61,6 +61,8 @@ export default function MovieModal() {
 
             if (nar && currentScene.audioUrl) {
                 nar.src = currentScene.audioUrl;
+                // Aplicar el volumen específico de la voz para esta escena
+                nar.volume = (currentScene.speechVolume ?? 100) / 100;
                 nar.onended = () => {
                     if (!vid) goToNextScene();
                 };

@@ -1,3 +1,4 @@
+
 export interface Character {
   name: string;
   description: string;
@@ -29,6 +30,7 @@ export interface Scene {
   duration?: number; // Duración en segundos del audio
   backgroundMusicUrl?: string;
   musicVolume?: number;
+  speechVolume?: number;
 }
 
 export type AppStep = 'input' | 'config' | 'scenes';
@@ -74,8 +76,9 @@ export type ProjectAction =
     | { type: 'UPDATE_SCENES_ORDER'; payload: Scene[] }
     | { type: 'DELETE_SCENE'; payload: number }
     | { type: 'UPDATE_CHARACTER_VOICE'; payload: { characterName: string; newVoice: string } }
-    | { type: 'SET_CONFIG'; payload: Partial<Pick<ProjectState, 'imageStyle' | 'artDirection' | 'aspectRatio' | 'includeTextInImage' | 'narratorVoice'>> }
-    | { type: 'UPDATE_SCENE_CONFIG', payload: { sceneId: number, config: Partial<Pick<Scene, 'backgroundMusicUrl' | 'musicVolume'>>}}
+    /* Added isSaving and isProjectSaved to SET_CONFIG payload to fix TypeScript errors in ProjectContext.tsx */
+    | { type: 'SET_CONFIG'; payload: Partial<Pick<ProjectState, 'imageStyle' | 'artDirection' | 'aspectRatio' | 'includeTextInImage' | 'narratorVoice' | 'isSaving' | 'isProjectSaved'>> }
+    | { type: 'UPDATE_SCENE_CONFIG', payload: { sceneId: number, config: Partial<Pick<Scene, 'backgroundMusicUrl' | 'musicVolume' | 'speechVolume'>>}}
     | { type: 'OPEN_MOVIE_MODAL' }
     | { type: 'CLOSE_MOVIE_MODAL' }
     | { type: 'LOAD_PROJECT'; payload: ProjectState }
