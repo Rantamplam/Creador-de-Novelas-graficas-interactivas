@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ProjectProvider, useProjectState, useProjectDispatch, useProjectActions } from './context/ProjectContext';
 import InputStep from './components/InputStep';
 import ConfigStep from './components/ConfigStep';
@@ -7,10 +7,19 @@ import ScenesDashboard from './components/ScenesDashboard';
 import Loader from './components/Loader';
 import MovieModal from './components/MovieModal';
 import ToastContainer from './components/Toast';
-import { SaveIcon, FolderOpenIcon, TrashIcon, DownloadIcon } from './components/Icons';
+import { SaveIcon, FolderOpenIcon, TrashIcon, DownloadIcon, KeyIcon } from './components/Icons';
+
+declare global {
+    interface Window {
+        aistudio: {
+            hasSelectedApiKey: () => Promise<boolean>;
+            openSelectKey: () => Promise<void>;
+        };
+    }
+}
 
 const GlobalHeader: React.FC = () => {
-    const { isSaving, isProjectSaved, currentStep } = useProjectState();
+    const { isSaving, isProjectSaved, currentStep, hasApiKey } = useProjectState();
     const { handleSaveProject, handleLoadProject, handleResetProject } = useProjectActions();
     const dispatch = useProjectDispatch();
 
@@ -27,6 +36,15 @@ const GlobalHeader: React.FC = () => {
         dispatch({ type: 'ADD_TOAST', payload: { message: 'Proyecto exportado como JSON', type: 'success' } });
     };
 
+    const handleSelectKey = async () => {
+        try {
+            await window.aistudio.openSelectKey();
+            dispatch({ type: 'SET_API_KEY_STATUS', payload: true });
+        } catch (error) {
+            console.error('Error selecting key:', error);
+        }
+    };
+
     return (
         <header className="sticky top-0 z-40 bg-gray-900/60 backdrop-blur-xl border-b border-white/10 p-4 shadow-2xl">
             <div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
@@ -41,6 +59,16 @@ const GlobalHeader: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {!hasApiKey && (
+                        <button 
+                            onClick={handleSelectKey}
+                            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-amber-500/20"
+                        >
+                            <KeyIcon className="w-4 h-4" />
+                            Configurar API Key
+                        </button>
+                    )}
+
                     {currentStep !== 'input' && (
                         <button 
                             onClick={() => dispatch({ type: 'SET_STEP', payload: 'input' })}
@@ -83,9 +111,49 @@ const GlobalHeader: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-    const { currentStep, statusMessage } = useProjectState();
+    const { currentStep, statusMessage, hasApiKey } = useProjectState();
+    const dispatch = useProjectDispatch();
+
+    useEffect(() => {
+        const checkKey = async () => {
+            if (window.aistudio) {
+                const hasKey = await window.aistudio.hasSelectedApiKey();
+                dispatch({ type: 'SET_API_KEY_STATUS', payload: hasKey });
+            } else {
+                // Fallback for local development if needed
+                dispatch({ type: 'SET_API_KEY_STATUS', payload: !!process.env.API_KEY });
+            }
+        };
+        checkKey();
+    }, [dispatch]);
 
     const renderStep = () => {
+        if (!hasApiKey && currentStep !== 'input') {
+            return (
+                <div className="flex flex-col justify-center items-center h-[60vh] space-y-6 text-center">
+                    <div className="w-20 h-20 bg-amber-500/10 rounded-full flex items-center justify-center mb-4">
+                        <KeyIcon className="w-10 h-10 text-amber-500" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-white">Se requiere una API Key</h2>
+                    <p className="text-gray-400 max-w-md">
+                        Para generar videos con Veo y contenido avanzado, necesitas configurar tu propia API Key de Google Cloud con facturación habilitada.
+                    </p>
+                    <button 
+                        onClick={async () => {
+                            await window.aistudio.openSelectKey();
+                            dispatch({ type: 'SET_API_KEY_STATUS', payload: true });
+                        }}
+                        className="px-8 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-2xl font-bold transition-all shadow-xl shadow-amber-500/20"
+                    >
+                        Configurar Ahora
+                    </button>
+                    <p className="text-xs text-gray-500">
+                        Consulta la <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sky-500 hover:underline">documentación de facturación</a> para más detalles.
+                    </p>
+                </div>
+            );
+        }
+
         if (statusMessage) {
             return (
                 <div className="flex flex-col justify-center items-center h-[60vh] space-y-8">

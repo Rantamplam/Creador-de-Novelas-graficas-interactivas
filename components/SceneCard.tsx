@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import type { Scene } from '../types';
-import { useProjectState, useProjectDispatch, useProjectActions } from '../context/ProjectContext';
+import { useProjectState, useProjectDispatch, useProjectActions, AVAILABLE_VOICES } from '../context/ProjectContext';
 import Loader from './Loader';
 import { FilmIcon, SpeakerWaveIcon, TrashIcon, DragHandleIcon, MusicNoteIcon, PlayIcon, PauseIcon, DownloadIcon, UploadIcon, VolumeUpIcon } from './Icons';
 import { generateVideoForScene, checkVideoStatus } from '../services/gemini';
@@ -21,10 +21,11 @@ interface SceneCardProps {
 
 export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
     const dispatch = useProjectDispatch();
-    const { hasApiKey, aspectRatio } = useProjectState();
+    const { hasApiKey, aspectRatio, characters: allCharacters, showSubtitles } = useProjectState();
     const { handleNarrateScene, handleGenerateImageForScene } = useProjectActions();
     
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+    const [currentAudioTime, setCurrentAudioTime] = useState(0);
     const [isPlayingMusic, setIsPlayingMusic] = useState(false);
     const [customMusicName, setCustomMusicName] = useState<string | null>(null);
     const [audioError, setAudioError] = useState<string | null>(null);
@@ -35,7 +36,6 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
     const videoUploadRef = useRef<HTMLInputElement>(null);
     const musicUploadRef = useRef<HTMLInputElement>(null);
 
-    // Sincronizar volúmenes del reproductor con el estado
     useEffect(() => {
         if (musicPlayerRef.current) {
             musicPlayerRef.current.volume = (scene.musicVolume ?? 40) / 100;
@@ -59,7 +59,7 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
             }
             player.play().catch(e => {
                 console.error("Error voz:", e);
-                dispatch({ type: 'ADD_TOAST', payload: { message: 'Error al reproducir voz. Prueba regenerando.', type: 'error' } });
+                dispatch({ type: 'ADD_TOAST', payload: { message: 'Error al reproducir voz.', type: 'error' } });
             });
         }
     };
@@ -72,15 +72,10 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
             player.pause();
         } else {
             player.volume = (scene.musicVolume ?? 40) / 100;
-            const playPromise = player.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.error("Error al reproducir música:", error);
-                    setAudioError("Error de carga de audio externo.");
-                    dispatch({ type: 'ADD_TOAST', payload: { message: 'Servidor de música no disponible. Prueba subiendo tu archivo.', type: 'error' } });
-                    setIsPlayingMusic(false);
-                });
-            }
+            player.play().catch(error => {
+                console.error("Error al reproducir música:", error);
+                setIsPlayingMusic(false);
+            });
         }
     };
 
@@ -94,7 +89,7 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
             const reader = new FileReader();
             reader.onload = (event) => {
                 const imageUrl = event.target?.result as string;
-                dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { imageUrl, imagePrompt: 'Cargada por el usuario' } } });
+                dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { imageUrl, imagePrompt: 'Cargada por el usuario', imageError: undefined } } });
                 dispatch({ type: 'ADD_TOAST', payload: { message: 'Imagen subida', type: 'success' } });
             };
             reader.readAsDataURL(file);
@@ -143,6 +138,29 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
         }
     };
 
+    const getActiveSubtitle = () => {
+        if (!isPlayingAudio || !scene.duration || !showSubtitles) return null;
+        
+        const speakableParts = scene.parts.filter(p => p.type !== 'INSTRUCTION' && p.text.trim());
+        const totalChars = speakableParts.reduce((acc, p) => acc + p.text.length, 0);
+        if (totalChars === 0) return null;
+
+        let charCount = 0;
+        for (const part of speakableParts) {
+            const partDuration = (part.text.length / totalChars) * scene.duration;
+            const startTime = (charCount / totalChars) * scene.duration;
+            const endTime = startTime + partDuration;
+
+            if (currentAudioTime >= startTime && currentAudioTime <= endTime) {
+                return part;
+            }
+            charCount += part.text.length;
+        }
+        return null;
+    };
+
+    const activeSubtitle = getActiveSubtitle();
+
     return (
         <div className="bg-gray-900/40 backdrop-blur-2xl border border-white/5 rounded-[2rem] overflow-hidden shadow-2xl hover:border-sky-500/30 transition-all duration-700 group/card">
             <header className="flex items-center justify-between bg-white/[0.02] p-6 border-b border-white/5">
@@ -163,29 +181,53 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
             <div className="flex flex-col xl:flex-row">
                 <div className="xl:w-3/5 aspect-video bg-gray-950 relative group/media overflow-hidden border-r border-white/5">
                     {scene.isGeneratingImage ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-gray-950"><Loader message="Sincronizando estilo..." /></div>
+                        <div className="absolute inset-0 flex items-center justify-center bg-gray-950"><Loader message="Dibujando la escena..." /></div>
                     ) : scene.imageUrl ? (
                         scene.videoUrl ? (
                             <div className="relative w-full h-full">
                                 <video src={scene.videoUrl} controls className="w-full h-full object-cover" />
+                                {activeSubtitle && (
+                                    <div className="absolute bottom-12 left-0 right-0 flex justify-center px-8 pointer-events-none">
+                                        <div className="bg-black/60 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/10 text-center max-w-2xl">
+                                            {activeSubtitle.speaker && <p className="text-[10px] font-black text-sky-400 uppercase tracking-widest mb-1">{activeSubtitle.speaker}</p>}
+                                            <p className="text-white text-sm font-medium leading-tight">{activeSubtitle.text}</p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="relative w-full h-full group/img">
                                 <img src={scene.imageUrl} alt="" className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-[2s]" />
+                                {activeSubtitle && (
+                                    <div className="absolute bottom-12 left-0 right-0 flex justify-center px-8 pointer-events-none">
+                                        <div className="bg-black/60 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/10 text-center max-w-2xl">
+                                            {activeSubtitle.speaker && <p className="text-[10px] font-black text-sky-400 uppercase tracking-widest mb-1">{activeSubtitle.speaker}</p>}
+                                            <p className="text-white text-sm font-medium leading-tight">{activeSubtitle.text}</p>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="absolute top-6 left-6 flex gap-2 opacity-0 group-hover/img:opacity-100 transition-opacity duration-500">
-                                    <button onClick={() => imageUploadRef.current?.click()} className="p-2 bg-black/60 hover:bg-sky-500 rounded-full text-white transition-all shadow-xl">
+                                    <button onClick={() => imageUploadRef.current?.click()} className="p-2 bg-black/60 hover:bg-sky-500 rounded-full text-white transition-all shadow-xl" title="Subir propia imagen">
                                         <UploadIcon className="w-4 h-4" />
                                     </button>
-                                    <button onClick={() => handleGenerateImageForScene(scene.id)} className="p-2 bg-sky-600 hover:bg-sky-500 rounded-full text-white transition-all shadow-xl">
+                                    <button onClick={() => handleGenerateImageForScene(scene.id)} className="p-2 bg-sky-600 hover:bg-sky-500 rounded-full text-white transition-all shadow-xl" title="Regenerar con IA">
                                         <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                     </button>
                                 </div>
                             </div>
                         )
                     ) : (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-gray-950">
-                             <button onClick={() => handleGenerateImageForScene(scene.id)} className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-2xl text-xs font-bold text-white transition-all">Generar Imagen</button>
-                             <button onClick={() => imageUploadRef.current?.click()} className="px-6 py-2.5 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold text-gray-400 transition-all">Subir Arte</button>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-gray-950 p-8 text-center">
+                             {scene.imageError && (
+                                <div className="mb-4 bg-red-500/10 border border-red-500/30 p-4 rounded-2xl text-red-400 text-xs max-w-sm">
+                                    <p className="font-bold mb-1 uppercase tracking-widest">Error de generación:</p>
+                                    <p>{scene.imageError}</p>
+                                </div>
+                             )}
+                             <div className="flex gap-4">
+                                <button onClick={() => handleGenerateImageForScene(scene.id)} className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-2xl text-xs font-bold text-white transition-all">Generar Imagen</button>
+                                <button onClick={() => imageUploadRef.current?.click()} className="px-6 py-2.5 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold text-gray-400 transition-all">Subir Arte</button>
+                             </div>
                         </div>
                     )}
                     <input ref={imageUploadRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
@@ -197,7 +239,20 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                         <div className="max-h-40 overflow-y-auto pr-4 custom-scrollbar space-y-3">
                             {scene.parts.map((p, i) => (
                                 <div key={i} className={`p-3 rounded-2xl border transition-colors ${p.type === 'DIALOGUE' ? 'bg-sky-500/5 border-sky-500/20' : 'bg-white/5 border-transparent'}`}>
-                                    {p.speaker && <p className="text-[9px] font-black text-sky-400 uppercase tracking-widest mb-1">{p.speaker}</p>}
+                                    {p.speaker && (
+                                        <div className="flex items-center justify-between mb-1">
+                                            <p className="text-[9px] font-black text-sky-400 uppercase tracking-widest">{p.speaker}</p>
+                                            {allCharacters.find(c => c.name === p.speaker) && (
+                                                <select 
+                                                    value={allCharacters.find(c => c.name === p.speaker)?.voice || ''}
+                                                    onChange={(e) => dispatch({ type: 'UPDATE_CHARACTER_VOICE', payload: { characterName: p.speaker!, newVoice: e.target.value } })}
+                                                    className="bg-transparent text-[8px] text-gray-500 uppercase font-bold outline-none border-none cursor-pointer hover:text-sky-400 transition-colors"
+                                                >
+                                                    {AVAILABLE_VOICES.map(v => <option key={v.name} value={v.name} className="bg-gray-900">{v.description}</option>)}
+                                                </select>
+                                            )}
+                                        </div>
+                                    )}
                                     <p className={`text-sm leading-relaxed ${p.type === 'DIALOGUE' ? 'text-white font-medium italic' : 'text-gray-400'}`}>
                                         {p.text}
                                     </p>
@@ -231,14 +286,16 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                                             crossOrigin="anonymous"
                                             onEnded={() => {
                                                 setIsPlayingAudio(false);
+                                                setCurrentAudioTime(0);
                                                 if (musicPlayerRef.current) musicPlayerRef.current.volume = (scene.musicVolume ?? 40) / 100;
                                             }}
+                                            onTimeUpdate={(e) => setCurrentAudioTime(e.currentTarget.currentTime)}
                                             onPause={() => setIsPlayingAudio(false)}
                                             onPlay={() => setIsPlayingAudio(true)}
                                             className="hidden" 
                                         />
                                     </button>
-                                    <button onClick={() => dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { audioUrl: undefined } } })} className="text-[9px] text-gray-600 hover:text-sky-400 uppercase tracking-widest font-black text-center">Cambiar Voz</button>
+                                    <button onClick={() => dispatch({ type: 'UPDATE_SCENE', payload: { sceneId: scene.id, updates: { audioUrl: undefined } } })} className="text-[9px] text-gray-600 hover:text-sky-400 uppercase tracking-widest font-black text-center">Regenerar Voz</button>
                                 </div>
                             )}
 
@@ -277,7 +334,7 @@ export default function SceneCard({ scene, sceneNumber }: SceneCardProps) {
                                     setCustomMusicName(null);
                                     handleConfigUpdate({ backgroundMusicUrl: e.target.value });
                                 }}
-                                className="bg-gray-900 border border-white/5 text-xs text-gray-400 outline-none w-full p-2.5 rounded-xl"
+                                className="bg-gray-900 border border-white/5 text-xs text-gray-400 outline-none w-full p-2.5 rounded-xl text-white"
                             >
                                 {PREDEFINED_MUSIC.map(m => <option key={m.name} value={m.url}>{m.name}</option>)}
                                 {customMusicName && <option value="custom">Pers.: {customMusicName}</option>}

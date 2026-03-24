@@ -2,6 +2,7 @@
 export interface Character {
   name: string;
   description: string;
+  gender: 'MASCULINE' | 'FEMININE' | 'NEUTRAL';
   voice?: string;
 }
 
@@ -27,7 +28,7 @@ export interface Scene {
   audioUrl?: string;
   isGeneratingAudio: boolean;
   audioError?: string;
-  duration?: number; // Duración en segundos del audio
+  duration?: number;
   backgroundMusicUrl?: string;
   musicVolume?: number;
   speechVolume?: number;
@@ -54,6 +55,7 @@ export interface ProjectState {
     aspectRatio: '16:9' | '9:16';
     includeTextInImage: boolean;
     narratorVoice: string;
+    showSubtitles: boolean;
     isSaving: boolean;
     isProjectSaved: boolean;
     isMovieModalOpen: boolean;
@@ -76,8 +78,8 @@ export type ProjectAction =
     | { type: 'UPDATE_SCENES_ORDER'; payload: Scene[] }
     | { type: 'DELETE_SCENE'; payload: number }
     | { type: 'UPDATE_CHARACTER_VOICE'; payload: { characterName: string; newVoice: string } }
-    /* Added isSaving and isProjectSaved to SET_CONFIG payload to fix TypeScript errors in ProjectContext.tsx */
-    | { type: 'SET_CONFIG'; payload: Partial<Pick<ProjectState, 'imageStyle' | 'artDirection' | 'aspectRatio' | 'includeTextInImage' | 'narratorVoice' | 'isSaving' | 'isProjectSaved'>> }
+    | { type: 'TOGGLE_SUBTITLES' }
+    | { type: 'SET_CONFIG'; payload: Partial<Pick<ProjectState, 'imageStyle' | 'artDirection' | 'aspectRatio' | 'includeTextInImage' | 'narratorVoice' | 'isSaving' | 'isProjectSaved' | 'showSubtitles'>> }
     | { type: 'UPDATE_SCENE_CONFIG', payload: { sceneId: number, config: Partial<Pick<Scene, 'backgroundMusicUrl' | 'musicVolume' | 'speechVolume'>>}}
     | { type: 'OPEN_MOVIE_MODAL' }
     | { type: 'CLOSE_MOVIE_MODAL' }
